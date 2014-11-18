@@ -80,10 +80,10 @@ var Jsj6502 = function () {
 
     this.halt = false;
 
-    this.logCache = true;
-    this.logDecode = true;
-    this.logJit = true;
-    this.logDump = true;
+    this.logCache = false;
+    this.logDecode = false;
+    this.logJit = false;
+    this.logDump = false;
     this.logMemory = false;
     this.enableCache = true;
     this.enableConditionOptimization = true;
@@ -254,7 +254,7 @@ Jsj6502.prototype.log = console.log.bind(console);
 Jsj6502.prototype.l16 = function (address) {
     var data = this.memory[address] | (this.memory[address + 1] << 8);
     if (this.logMemory)
-        this.log("*** load $" + ToHex(address, 4) + " => $" + ToHex(data, 4));
+        this.log('*** load $' + ToHex(address, 4) + ' => $' + ToHex(data, 4));
     return data;
 };
 
@@ -265,7 +265,7 @@ Jsj6502.prototype.l16 = function (address) {
  */
 Jsj6502.prototype.l8 = function (address) {
     if (this.logMemory) {
-        this.log("*** load $" + ToHex(address, 4) + " => $" +
+        this.log('*** load $' + ToHex(address, 4) + ' => $' +
                  ToHex(this.memory[address]));
     }
     return this.memory[address];
@@ -280,7 +280,7 @@ Jsj6502.prototype.lz16 = function (address) {
     var data = this.memory[address & 0xff] |
                (this.memory[(address + 1) & 0xff] << 8);
     if (this.logMemory) {
-        this.log("*** load $" + ToHex(address & 0xff, 4) + " => $" +
+        this.log('*** load $' + ToHex(address & 0xff, 4) + ' => $' +
                  ToHex(data, 4));
     }
     return data;
@@ -293,7 +293,7 @@ Jsj6502.prototype.lz16 = function (address) {
  */
 Jsj6502.prototype.s8 = function (address, value) {
     if (this.logMemory)
-        this.log("*** store $" + ToHex(address, 4) + " <= $" + ToHex(value));
+        this.log('*** store $' + ToHex(address, 4) + ' <= $' + ToHex(value));
     // TODO: Should check if this operation invalidate current running trace.
     if (!this.writable[address >> 12])
         return;
@@ -327,7 +327,7 @@ Jsj6502.prototype.pop16 = function (value) {
     var h = this.stack[this.S[0]];
     var data = h << 8 | l;
     if (this.logMemory)
-        this.log("*** load $" + ToHex(0xff + this.S[0], 4) + " => $" + ToHex(data, 4));
+        this.log('*** load $' + ToHex(0xff + this.S[0], 4) + ' => $' + ToHex(data, 4));
     return data;
 };
 
@@ -338,7 +338,7 @@ Jsj6502.prototype.pop16 = function (value) {
 Jsj6502.prototype.pop8 = function (value) {
     ++this.S[0];
     if (this.logMemory)
-        this.log("*** load $" + ToHex(0x100 + this.S[0], 4) + " => $" + ToHex(this.stack[this.S[0]]));
+        this.log('*** load $' + ToHex(0x100 + this.S[0], 4) + ' => $' + ToHex(this.stack[this.S[0]]));
     return this.stack[this.S[0]];
 };
 
@@ -348,7 +348,7 @@ Jsj6502.prototype.pop8 = function (value) {
  */
 Jsj6502.prototype.push16 = function (value) {
     if (this.logMemory)
-        this.log("*** store $" + ToHex(0x100 + this.S[0], 4) + " <= $" + ToHex(value, 4));
+        this.log('*** store $' + ToHex(0x100 + this.S[0], 4) + ' <= $' + ToHex(value, 4));
     // Do not handle cache invalidation under assumption that PC does not jump
     // into the stack.
     // Note: --this.S[0] seems not work correctly against ArrayBuffer.
@@ -364,7 +364,7 @@ Jsj6502.prototype.push16 = function (value) {
  */
 Jsj6502.prototype.push8 = function (value) {
     if (this.logMemory)
-        this.log("*** store $" + ToHex(0x100 + this.S[0], 4) + " <= $" + ToHex(value));
+        this.log('*** store $' + ToHex(0x100 + this.S[0], 4) + ' <= $' + ToHex(value));
     // Do not handle cache invalidation under assumption that PC does not jump
     // into the stack.
     this.stack[this.S[0]] = value;
@@ -428,7 +428,7 @@ Jsj6502.prototype._compile = function () {
                      Jsj6502.OpDescriptions[this.l8(pc)] + ', op=' +
                      ToHex(this.l8(pc)) + ', code=' + data.code.join(';'));
         }
-        if (this.logDump)
+        if (this.logDump || this.logJit)
             data.pc = pc;
         asm.push(data);
         if (data.quit) {
@@ -1091,16 +1091,17 @@ Jsj6502.prototype._decodeADC = function (data, size) {
             't.T[0]=t.A[0]',
             't.T[1]=' + data,
             't.TMP=t.T[0]+t.T[1]+t.C',
+            'if(t.D){if((t.TMP&0xf)>9){t.TMP+=6}if(t.TMP>0x99){t.TMP+=0x60}}',
             't.A[0]=t.TMP'
         ],
         in: {
             c: true
         },
         out: {
-            n: 't.N=t.A[0]>>7',
+            n: 't.N=t.Z?0:(t.A[0]>>7)',
             z: 't.Z=t.A[0]?0:1',
             c: 't.C=(t.TMP&0xff00)?1:0',
-            v: 't.V=(~(t.T[0]^t.T[1])&(t.T[0]^t.A[0]))>>7'
+            v: 't.V=t.Z?0:((~(t.T[0]^t.T[1])&(t.T[0]^t.A[0]))>>7)'
         },
         size: size || 2
     };
@@ -1165,7 +1166,8 @@ Jsj6502.prototype._decodeB = function (pc, c, inc) {
         't.PC[0]=(' + c + ')?' + (pc + 2 + offset) + ':' + (pc + 2)
     ];
     if (this.enableInfiniteLoopDetector && offset == -2)
-        code.push('console.assert(!(' + c + '), "infinite loop")');
+        code.push('console.assert(!(' + c + '), \'infinite loop bxx at $' +
+                  ToHex(pc, 4) + '\')');
     return {
         code: code,
         in: inc,
@@ -1276,7 +1278,8 @@ Jsj6502.prototype._decodeJMP = function (pc, addr) {
         't.PC[0]=' + addr
     ];
     if (this.enableInfiniteLoopDetector)
-        code.push('console.assert(t.PC[0]!=' + pc + ', "infinite loop")');
+        code.push('console.assert(t.PC[0]!=' + pc + ', \'infinite loop jmp at $' +
+                  ToHex(pc, 4) + '\')');
     return {
         code: code,
         size: 3,
@@ -1504,16 +1507,17 @@ Jsj6502.prototype._decodeSBC = function (data, size) {
             't.T[0]=t.A[0]',
             't.T[1]=' + data,
             't.TMP=t.T[0]-t.T[1]-1+t.C',
+            'if(t.D){if((t.TMP&0xf)>9){t.TMP-=6}if(t.TMP>0x99){t.TMP-=0x60}}',
             't.A[0]=t.TMP'
         ],
         in: {
             c: true
         },
         out: {
-            n: 't.N=t.A[0]>>7',
+            n: 't.N=t.Z?0:(t.A[0]>>7)',
             z: 't.Z=t.A[0]?0:1',
             c: 't.C=(t.TMP&0xff00)?0:1',
-            v: 't.V=((t.T[0]^t.T[1])&(t.T[0]^t.A[0])&0x80)?1:0'
+            v: 't.V=t.Z?0:(((t.T[0]^t.T[1])&(t.T[0]^t.A[0])&0x80)?1:0)'
         },
         size: size || 2
     };
