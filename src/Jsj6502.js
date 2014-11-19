@@ -252,10 +252,7 @@ Jsj6502.prototype.log = console.log.bind(console);
  * @return {Uint8} 16-bit value read from the address.
  */
 Jsj6502.prototype.l16 = function (address) {
-    var data = this.memory[address] | (this.memory[address + 1] << 8);
-    if (this.logMemory)
-        this.log('*** load $' + ToHex(address, 4) + ' => $' + ToHex(data, 4));
-    return data;
+    return (this.l8(address + 1) << 8) | this.l8(address);
 };
 
 /**
@@ -277,13 +274,7 @@ Jsj6502.prototype.l8 = function (address) {
  * @return {Uint16} 16-bit value read from the address.
  */
 Jsj6502.prototype.lz16 = function (address) {
-    var data = this.memory[address & 0xff] |
-               (this.memory[(address + 1) & 0xff] << 8);
-    if (this.logMemory) {
-        this.log('*** load $' + ToHex(address & 0xff, 4) + ' => $' +
-                 ToHex(data, 4));
-    }
-    return data;
+    return (this.l8((address + 1) & 0xff) << 8) | this.l8(address & 0xff);
 };
 
 /**
