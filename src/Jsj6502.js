@@ -65,9 +65,12 @@ var Jsj6502 = function () {
 
     // Memory.
     this.memory = new Uint8Array(0x10000);
-    this.writable = new Array(0x10);
-    for (var i = 0; i < 0x10; ++i)
+    this.writable = new Array(0x100);
+    this.io = new Array(0x100);
+    for (var i = 0; i < 0x100; ++i) {
         this.writable[i] = true;
+        this.io[i] = undefined;
+    }
     // Creates memory alias for optimized stack access.
     this.stack = this.memory.subarray(0x100, 0x200);
 
@@ -88,6 +91,7 @@ var Jsj6502 = function () {
     this.enableCache = true;
     this.enableConditionOptimization = true;
     this.enableInfiniteLoopDetector = true;
+    this.enableStepCompile = false;
 
     this.reset();
 };
@@ -199,6 +203,7 @@ Jsj6502.prototype.reset = function () {
  * @param {boolean} full - A flag to dump internal registers.
  */
 Jsj6502.prototype.dump = function (pc, full) {
+    var ext = ' : ' + Jsj6502.OpDescriptions[this.memory[pc]];
     this.log('*** dump *** PC=$' + ToHex(pc, 4) +
              ' A=$' + ToHex(this.A[0]) +
              ' X=$' + ToHex(this.X[0]) +
@@ -206,8 +211,7 @@ Jsj6502.prototype.dump = function (pc, full) {
              ' SP=$' + ToHex(this.S[0]) +
              ' NPC=$' + ToHex(this.PC[0], 4) +
              ' NV-B_DIZC=' + this.N + this.V + '-' + this.B + '_' +
-                             this.D + this.I + this.Z + this.C +
-             ' : ' + Jsj6502.OpDescriptions[this.memory[pc]]);
+                             this.D + this.I + this.Z + this.C + ext);
     if (!full)
         return;
     this.log('************ T[0]=$' + ToHex(this.T[0]) + ' T[1]=$' + ToHex(this.T[1]));
@@ -265,6 +269,9 @@ Jsj6502.prototype.l8 = function (address) {
         this.log('*** load $' + ToHex(address, 4) + ' => $' +
                  ToHex(this.memory[address]));
     }
+    var bank = address >> 8;
+    if (this.io[bank])
+        return this.io[bank](address);
     return this.memory[address];
 };
 
@@ -286,8 +293,11 @@ Jsj6502.prototype.s8 = function (address, value) {
     if (this.logMemory)
         this.log('*** store $' + ToHex(address, 4) + ' <= $' + ToHex(value));
     // TODO: Should check if this operation invalidate current running trace.
-    if (!this.writable[address >> 12])
+    var bank = address >> 8;
+    if (!this.writable[bank])
         return;
+    if (this.io[bank])
+        return this.io[bank](address, value);
     if (this.cache[address]) {
         if (this.logCache) {
             this.log('translation cache invalidation: $' + ToHex(address, 4));
@@ -414,6 +424,8 @@ Jsj6502.prototype._compile = function () {
         //   quit: {boolean} indicates an end of basic block
         // }
         var data = this._decode(pc);
+        if (this.enableStepCompile && !data.quit)
+            data.code.push('t.PC[0]=' + (pc + data.size));
         if (this.logDecode) {
             this.log('decode: pc=$' + ToHex(pc, 4) + ', ' +
                      Jsj6502.OpDescriptions[this.l8(pc)] + ', op=' +
@@ -422,7 +434,7 @@ Jsj6502.prototype._compile = function () {
         if (this.logDump || this.logJit)
             data.pc = pc;
         asm.push(data);
-        if (data.quit) {
+        if (data.quit || this.enableStepCompile) {
             code.end = pc + data.size - 1;
             break;
         }
@@ -879,7 +891,7 @@ Jsj6502.prototype._decode = function (pc) {
  * @return {string} - A decoded code to get the absolute value.
  */
 Jsj6502.prototype._fromAbs16 = function (addr) {
-    if (!this.writable[addr >> 12])
+    if (!this.writable[addr >> 8])
         return 't.l16(' + this.l16(addr) + ')';
     return 't.l16(t.l16(' + addr + '))';
 };
@@ -890,7 +902,7 @@ Jsj6502.prototype._fromAbs16 = function (addr) {
  * @return {string} - A decoded code to get the absolute value.
  */
 Jsj6502.prototype._fromAbs8 = function (addr) {
-    if (!this.writable[addr >> 12])
+    if (!this.writable[addr >> 8])
         return 't.l8(' + this.l16(addr) + ')';
     return 't.l8(t.l16(' + addr + '))';
 };
@@ -902,7 +914,7 @@ Jsj6502.prototype._fromAbs8 = function (addr) {
  * @return {string} - A decoded code to get the absolute value.
  */
 Jsj6502.prototype._fromAbsoluteIndexed = function (addr, index) {
-    if (!this.writable[addr >> 12])
+    if (!this.writable[addr >> 8])
         return 't.l8(' + this.l16(addr) + '+' + index + ')';
     return 't.l8(t.l16(' + addr + ')+' + index + ')';
 };
@@ -913,7 +925,7 @@ Jsj6502.prototype._fromAbsoluteIndexed = function (addr, index) {
  * @return {string} - A decoded code to get the immediate value.
  */
 Jsj6502.prototype._fromImm16 = function (addr) {
-    if (!this.writable[addr >> 12])
+    if (!this.writable[addr >> 8])
         return '' + this.l16(addr);
     return 't.l16(' + addr + ')';
 };
@@ -924,7 +936,7 @@ Jsj6502.prototype._fromImm16 = function (addr) {
  * @return {string} - A decoded code to get the immediate value.
  */
 Jsj6502.prototype._fromImm8 = function (addr) {
-    if (!this.writable[addr >> 12])
+    if (!this.writable[addr >> 8])
         return '' + this.l8(addr);
     return 't.l8(' + addr + ')';
 };
@@ -936,7 +948,7 @@ Jsj6502.prototype._fromImm8 = function (addr) {
  */
 Jsj6502.prototype._fromIndexedIndirect = function (addr) {
     var base;
-    if (!this.writable[addr >> 12])
+    if (!this.writable[addr >> 8])
         base = this.l8(addr);
     else
         base = 't.l8(' + addr + ')';
@@ -950,7 +962,7 @@ Jsj6502.prototype._fromIndexedIndirect = function (addr) {
  */
 Jsj6502.prototype._fromIndirectIndex = function (addr) {
     var base;
-    if (!this.writable[addr >> 12])
+    if (!this.writable[addr >> 8])
         base = this.l8(addr);
     else
         base = 't.l8(' + addr + ')';
@@ -963,7 +975,7 @@ Jsj6502.prototype._fromIndirectIndex = function (addr) {
  * @return {string} - A decoded code to get the zero page addressing value.
  */
 Jsj6502.prototype._fromZero = function (addr) {
-    if (!this.writable[addr >> 12])
+    if (!this.writable[addr >> 8])
         return 't.l8(' + this.l8(addr) + ')';
     return 't.l8(t.l8(' + addr + '))';
 };
@@ -975,7 +987,7 @@ Jsj6502.prototype._fromZero = function (addr) {
  */
 Jsj6502.prototype._fromZeroIndex = function (addr, offset) {
     var base;
-    if (!this.writable[addr >> 12])
+    if (!this.writable[addr >> 8])
         base = this.l8(addr);
     else
         base = 't.l8(' + addr + ')';
@@ -990,7 +1002,7 @@ Jsj6502.prototype._fromZeroIndex = function (addr, offset) {
  */
 Jsj6502.prototype._toAbs = function (addr) {
     var base;
-    if (!this.writable[addr >> 12])
+    if (!this.writable[addr >> 8])
         base = this.l16(addr);
     else
         base = 't.l16(' + addr + ')';
@@ -1005,7 +1017,7 @@ Jsj6502.prototype._toAbs = function (addr) {
  */
 Jsj6502.prototype._toAbsoluteIndexed = function (addr, index) {
     var base;
-    if (!this.writable[addr >> 12])
+    if (!this.writable[addr >> 8])
         base = this.l16(addr);
     else
         base = 't.l16(' + addr + ')';
@@ -1019,7 +1031,7 @@ Jsj6502.prototype._toAbsoluteIndexed = function (addr, index) {
  */
 Jsj6502.prototype._toIndexedIndirect = function (addr) {
     var base;
-    if (!this.writable[addr >> 12])
+    if (!this.writable[addr >> 8])
         base = this.l8(addr);
     else
         base = 't.l8(' + addr + ')';
@@ -1033,7 +1045,7 @@ Jsj6502.prototype._toIndexedIndirect = function (addr) {
  */
 Jsj6502.prototype._toIndirectIndex = function (addr) {
     var base;
-    if (!this.writable[addr >> 12])
+    if (!this.writable[addr >> 8])
         base = this.l8(addr);
     else
         base = 't.l8(' + addr + ')';
@@ -1047,7 +1059,7 @@ Jsj6502.prototype._toIndirectIndex = function (addr) {
  */
 Jsj6502.prototype._toZero = function (addr) {
     var base;
-    if (!this.writable[addr >> 12])
+    if (!this.writable[addr >> 8])
         base = this.l8(addr);
     else
         base = 't.l8(' + addr + ')';
@@ -1062,12 +1074,30 @@ Jsj6502.prototype._toZero = function (addr) {
  */
 Jsj6502.prototype._toZeroIndex = function (addr, offset) {
     var base;
-    if (!this.writable[addr >> 12])
+    if (!this.writable[addr >> 8])
         base = this.l8(addr);
     else
         base = 't.l8(' + addr + ')';
     var index = '(' + base + '+' + offset + ')&0xff';
     return ['t.s8(' + index + ',', ')'];
+};
+
+/**
+ * Performes an ADC decimal operation.
+ * @param {number} a - number.
+ * @param {number} b - number.
+ * @return {number} result.
+ */
+Jsj6502.prototype._adc = function (a, b) {
+    var l = (a & 0x0f) + (b & 0x0f) + this.C;
+    var h = (a >> 4) + (b >> 4);
+    if (l > 9) {
+        l += 6;
+        h++;
+    }
+    if (h > 9)
+        h += 6;
+    return (h << 4) | (l & 0x0f);
 };
 
 /**
@@ -1081,18 +1111,18 @@ Jsj6502.prototype._decodeADC = function (data, size) {
         code: [
             't.T[0]=t.A[0]',
             't.T[1]=' + data,
-            't.TMP=t.T[0]+t.T[1]+t.C',
-            'if(t.D){if((t.TMP&0xf)>9){t.TMP+=6}if(t.TMP>0x99){t.TMP+=0x60}}',
+            't.TMP=t.D?t._adc(t.T[0],t.T[1]):(t.T[0]+t.T[1]+t.C)',
             't.A[0]=t.TMP'
         ],
         in: {
-            c: true
+            c: true,
+            d: true
         },
         out: {
-            n: 't.N=t.Z?0:(t.A[0]>>7)',
+            n: 't.N=t.A[0]>>7',
             z: 't.Z=t.A[0]?0:1',
             c: 't.C=(t.TMP&0xff00)?1:0',
-            v: 't.V=t.Z?0:((~(t.T[0]^t.T[1])&(t.T[0]^t.A[0]))>>7)'
+            v: 't.V=(~(t.T[0]^t.T[1])&(t.T[0]^t.A[0]))>>7'
         },
         size: size || 2
     };
@@ -1487,6 +1517,25 @@ Jsj6502.prototype._decodeRTS = function () {
 };
 
 /**
+ * Performes an SBC decimal operation.
+ * @param {number} a - number.
+ * @param {number} b - number.
+ * @return {number} result.
+ */
+Jsj6502.prototype._sbc = function (a, b) {
+    var l = ((a & 0x0f) - (b & 0x0f) -1 + this.C) & 0x1f;
+    var h = (a >> 4) - (b >> 4)
+    if (l > 9) {
+        l -= 6;
+        h--;
+    }
+    h = h & 0x1f;
+    if (h > 9)
+        h -= 6;
+    return (h << 4) | l;
+};
+
+/**
  * Decodes a SBC instruction.
  * @param {string} data - A input data to increase.
  * @param {number} [size=2] - code size.
@@ -1497,18 +1546,19 @@ Jsj6502.prototype._decodeSBC = function (data, size) {
         code: [
             't.T[0]=t.A[0]',
             't.T[1]=' + data,
-            't.TMP=t.T[0]-t.T[1]-1+t.C',
-            'if(t.D){if((t.TMP&0xf)>9){t.TMP-=6}if(t.TMP>0x99){t.TMP-=0x60}}',
+            't.TMP=t.D?this._sbc(t.T[0],t.T[1]):(t.T[0]-t.T[1]-1+t.C)',
+            'if(t.D)t.TMP=0',
             't.A[0]=t.TMP'
         ],
         in: {
-            c: true
+            c: true,
+            d: true
         },
         out: {
-            n: 't.N=t.Z?0:(t.A[0]>>7)',
+            n: 't.N=t.A[0]>>7',
             z: 't.Z=t.A[0]?0:1',
             c: 't.C=(t.TMP&0xff00)?0:1',
-            v: 't.V=t.Z?0:(((t.T[0]^t.T[1])&(t.T[0]^t.A[0])&0x80)?1:0)'
+            v: 't.V=((t.T[0]^t.T[1])&(t.T[0]^t.A[0])&0x80)?1:0'
         },
         size: size || 2
     };
