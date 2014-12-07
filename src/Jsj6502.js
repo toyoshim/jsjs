@@ -784,7 +784,7 @@ Jsj6502.prototype._decode = function (pc) {
                                   3);
 
         case 0xc0:  // CPY - Immediate
-            return this._decodeCP('Y', this._fromImm8(pc+1));
+            return this._decodeCP('Y', this._fromImm8(pc + 1));
         case 0xc1:  // CMP - (Indirect, X)
             return this._decodeCP('A', this._fromIndexedIndirect(pc + 1));
         case 0xc4:  // CPY - Zero Page
@@ -797,7 +797,7 @@ Jsj6502.prototype._decode = function (pc) {
         case 0xc8:  // INY
             return this._decodeINC('t.Y[0]', ['t.Y[0]=', ''], 1);
         case 0xc9:  // CMP - Immediate
-            return this._decodeCP('A', this._fromImm8(pc+1));
+            return this._decodeCP('A', this._fromImm8(pc + 1));
         case 0xca:  // DEX
             return this._decodeDEC('t.X[0]', ['t.X[0]=', ''], 1);
         case 0xcc:  // CPY - Absolute
@@ -833,7 +833,7 @@ Jsj6502.prototype._decode = function (pc) {
                                    3);
 
         case 0xe0:  // CPX - Immediate
-            return this._decodeCP('X', this._fromImm8(pc+1));
+            return this._decodeCP('X', this._fromImm8(pc + 1));
         case 0xe1:  // SBC - (Indirect, X)
             return this._decodeSBC(this._fromIndexedIndirect(pc + 1));
         case 0xe4:  // CPX - Zero Page
@@ -846,7 +846,7 @@ Jsj6502.prototype._decode = function (pc) {
         case 0xe8:  // INX
             return this._decodeINC('t.X[0]', ['t.X[0]=', ''], 1);
         case 0xe9:  // SBC - Immediate
-            return this._decodeSBC(this._fromImm8(pc+1));
+            return this._decodeSBC(this._fromImm8(pc + 1));
         case 0xea:  // NOP
             return { code: [], size: 1 };
         case 0xec:  // CPX - Absolute
@@ -1547,7 +1547,6 @@ Jsj6502.prototype._decodeSBC = function (data, size) {
             't.T[0]=t.A[0]',
             't.T[1]=' + data,
             't.TMP=t.D?this._sbc(t.T[0],t.T[1]):(t.T[0]-t.T[1]-1+t.C)',
-            'if(t.D)t.TMP=0',
             't.A[0]=t.TMP'
         ],
         in: {
